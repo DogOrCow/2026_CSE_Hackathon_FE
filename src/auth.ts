@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
 export type StudentAccount = { email: string; displayName: string }
-export type AuthResult = { student?: StudentAccount; error?: string }
+export type AuthResult = { student?: StudentAccount; role?: 'student' | 'professor'; error?: string }
 
 export const DEMO_STUDENT_EMAIL = 'yesung@knu.ac.kr'
 export const DEMO_PROFESSOR_EMAIL = 'jihwan@knu.ac.kr'

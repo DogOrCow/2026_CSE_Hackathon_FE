@@ -143,16 +143,19 @@ export function useApiAuth(role: AuthRole) {
       if (typeof response?.access_token !== 'string' || !response.access_token || typeof response.name !== 'string') {
         return { error: '인증 서버의 응답을 확인할 수 없어요. 다시 시도해 주세요.' }
       }
-      if (response.role !== expectedRole) {
-        const screen = response.role === 'PROFESSOR' ? '교수' : '학생'
-        return { error: `${screen} 화면에서 로그인해 주세요.` }
+      if (response.role !== 'STUDENT' && response.role !== 'PROFESSOR') {
+        return { error: '인증 서버의 응답을 확인할 수 없어요. 다시 시도해 주세요.' }
+      }
+      if (path === '/auth/signup' && response.role !== 'STUDENT') {
+        return { error: '가입 결과를 확인할 수 없어요. 다시 로그인해 주세요.' }
       }
 
       const student = { email: body.email, displayName: response.name }
       const token = response.access_token
-      storeToken(key, token, remember)
-      setState({ ...loggedOut, student, token })
-      return { student }
+      const authenticatedRole = response.role === 'PROFESSOR' ? 'professor' : 'student'
+      storeToken(`babo3:api-auth:v1:${authenticatedRole}`, token, remember)
+      if (authenticatedRole === role) setState({ ...loggedOut, student, token })
+      return { student, role: authenticatedRole }
     } catch (error) {
       if (revision.current !== currentRevision) return {}
       return { error: authError(error, '인증 서버에 연결하지 못했어요. 다시 시도해 주세요.') }
@@ -197,5 +200,5 @@ export function useApiAuth(role: AuthRole) {
     setState(loggedOut)
   }
 
-  return { ...state, signIn, signUp, requestEmailCode, signOut, retry: () => void restore() }
+  return { ...state, signIn, signUp, requestEmailCode, signOut, retry: restore }
 }

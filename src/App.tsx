@@ -7,7 +7,7 @@ import {
 } from './api'
 import { useApiAuth } from './apiAuth'
 import { useApiResource, useApiRoom } from './apiData'
-import { useProfessorAuth, useStudentAuth } from './auth'
+import { DEMO_PROFESSOR_EMAIL, normalizeSchoolEmail, useProfessorAuth, useStudentAuth } from './auth'
 import { CourseArchive } from './CourseArchive'
 import { CourseDialog } from './CourseDialog'
 import { CourseIndex } from './CourseIndex'
@@ -28,11 +28,6 @@ interface Route {
   courseId?: string
   sessionId?: string
 }
-
-const roles = [
-  { id: 'student', label: '학생 화면' },
-  { id: 'professor', label: '교수 화면' },
-] as const
 
 function homeRoute(role: Role): Route {
   return { role, view: role === 'professor' ? 'home' : 'courses' }
@@ -172,7 +167,11 @@ export function App() {
   const apiProfessor = useApiAuth('professor')
   const isStudent = route.role === 'student'
   const apiAuth = isStudent ? apiStudent : apiProfessor
+  const otherApiAuth = isStudent ? apiProfessor : apiStudent
   const auth = API_ENABLED ? apiAuth : isStudent ? mockStudent : mockProfessor
+  const otherAuth = API_ENABLED
+    ? isStudent ? apiProfessor : apiStudent
+    : isStudent ? mockProfessor : mockStudent
   const token = API_ENABLED ? apiAuth.token : null
   const studentEmail = API_ENABLED ? null : mockStudent.student?.email ?? null
   const mockCatalog = useMockCatalog()
@@ -190,6 +189,8 @@ export function App() {
   const professorInClass = !isStudent && (route.view === 'home' || route.view === 'login') && Boolean(liveCourseId)
   const activeCourse = professorInClass ? scheduledCourse : courses.find((course) => course.id === route.courseId)
   const authView = auth.student ? null : isStudent && route.view === 'signup' ? 'signup' : 'login'
+  const authLoading = apiAuth.loading || (!apiAuth.student && otherApiAuth.loading)
+  const authError = apiAuth.error ?? (!apiAuth.student ? otherApiAuth.error : null)
   const wantsLive = !authView && (route.view === 'live' || professorInClass)
   const apiRoom = useApiRoom(token, wantsLive ? activeCourse?.id : undefined)
   const liveSession = API_ENABLED ? apiRoom.session ?? undefined : activeCourse?.sessions.find((session) => session.live)
@@ -240,6 +241,14 @@ export function App() {
     window.addEventListener('popstate', update)
     return () => window.removeEventListener('popstate', update)
   }, [])
+
+  useEffect(() => {
+    if (API_ENABLED && (apiStudent.loading || apiProfessor.loading)) return
+    if (auth.student || !otherAuth.student || route.view === 'signup') return
+    const next = homeRoute(isStudent ? 'professor' : 'student')
+    window.history.replaceState(null, '', routeHref(next))
+    setRoute(next)
+  }, [apiStudent.loading, apiProfessor.loading, auth.student, otherAuth.student, isStudent, route.view])
 
   useEffect(() => {
     if (!auth.student || !professorInClass || !activeCourse || (!API_ENABLED && !liveSession)) return
@@ -379,7 +388,8 @@ export function App() {
 
   function signOut() {
     auth.signOut()
-    navigate({ role: route.role, view: 'login' }, true)
+    otherAuth.signOut()
+    navigate({ role: 'student', view: 'login' }, true)
   }
 
   const indexCourses = API_ENABLED ? courses : courses.map((course) => course.id === liveCourseId ? ({
@@ -395,41 +405,39 @@ export function App() {
             <span className="brand-mark"><Icon name="brand" size={23} /></span>
             익명실명
           </a>
-          <div className="site-header-controls">
-            <nav className="role-nav" aria-label="수업 화면 선택">
-              {roles.map(({ id, label }) => (
-                <a
-                  key={id}
-                  className="role-link"
-                  href={routeHref(homeRoute(id))}
-                  onClick={follow(homeRoute(id))}
-                  aria-current={route.role === id ? 'page' : undefined}
-                >
-                  <Icon name={id} size={16} />{label}
-                </a>
-              ))}
-            </nav>
-            {auth.student && <AccountMenu key={viewKey} displayName={auth.student.displayName} onSignOut={signOut} />}
-          </div>
+          {auth.student && <AccountMenu key={viewKey} displayName={auth.student.displayName} onSignOut={signOut} />}
         </div>
       </header>
 
       <main ref={scrollArea} className="page-scroll" tabIndex={-1}>
-        {API_ENABLED && (apiAuth.loading || apiAuth.error) ? (
+        {API_ENABLED && (authLoading || authError) ? (
           <div className="page-content">
-            <ApiStatus message={apiAuth.error ?? '로그인 상태를 확인하고 있어요.'} error={Boolean(apiAuth.error)}
-              onRetry={apiAuth.error ? apiAuth.retry : undefined} />
+            <ApiStatus message={authError ?? '로그인 상태를 확인하고 있어요.'} error={Boolean(authError)}
+              onRetry={authError ? (apiAuth.error ? apiAuth.retry : otherApiAuth.retry) : undefined} />
           </div>
         ) : authView ? (
           <AuthScreen
             key={viewKey}
-            role={route.role}
+            role="student"
             view={authView}
-            open={(view) => navigate({ role: route.role, view })}
+            open={(view) => navigate({ role: 'student', view })}
             requestEmailCode={API_ENABLED ? apiStudent.requestEmailCode : undefined}
-            signIn={async (...args) => {
-              const result = await auth.signIn(...args)
-              if (result.student) finishAuth()
+            signIn={async (email, password, remember) => {
+              const mockRole = normalizeSchoolEmail(email) === DEMO_PROFESSOR_EMAIL ? 'professor' : 'student'
+              const result = API_ENABLED
+                ? await apiAuth.signIn(email, password, remember)
+                : await (mockRole === 'professor' ? mockProfessor : mockStudent).signIn(email, password, remember)
+              if (result.student && routeHref(readRoute()) === routeHref(route)) {
+                const authenticatedRole = API_ENABLED ? result.role! : mockRole
+                if (API_ENABLED && authenticatedRole !== route.role) {
+                  await (authenticatedRole === 'professor' ? apiProfessor : apiStudent).retry()
+                }
+                const previousAuth = API_ENABLED
+                  ? authenticatedRole === 'professor' ? apiStudent : apiProfessor
+                  : authenticatedRole === 'professor' ? mockStudent : mockProfessor
+                previousAuth.signOut()
+                navigate(homeRoute(authenticatedRole), true)
+              }
               return result
             }}
             signUp={isStudent ? async (email, password, verification) => {

@@ -88,42 +88,6 @@ button, a, textarea { -webkit-tap-highlight-color: transparent; }
   box-shadow: 0 3px 8px #20202025;
 }
 
-.role-nav {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  background: #f4f4f4;
-  border: 1px solid #ededed;
-  border-radius: 12px;
-}
-
-.role-link {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 38px;
-  padding: 0 13px;
-  border-radius: 8px;
-  color: var(--muted);
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 650;
-  transition: color 160ms ease, background 160ms ease, box-shadow 180ms ease;
-}
-
-.role-link[aria-current="page"] {
-  background: var(--surface);
-  color: var(--accent-strong);
-  box-shadow: 0 1px 4px #19191917;
-}
-
-.site-header-controls {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 .account-menu {
   position: relative;
 }
@@ -621,7 +585,6 @@ button, a, textarea { -webkit-tap-highlight-color: transparent; }
 .course-navigation-history { color: var(--muted); }
 
 @media (hover: hover) {
-  .role-link:hover { color: var(--accent-strong); }
   .reaction-button:hover { border-color: #a1a1a1; background: var(--accent-soft); }
   .submit-button:not(:disabled):hover { background: var(--accent-strong); }
   .history-link:hover, .page-back:hover { background: #e5e5e5; border-color: #cecece; }
@@ -666,9 +629,6 @@ button, a, textarea { -webkit-tap-highlight-color: transparent; }
   .brand { font-size: 16px; gap: 6px; }
   .brand-mark { width: 29px; height: 29px; border-radius: 8px; }
   .brand-mark svg { width: 18px; height: 18px; }
-  .role-link { min-height: 44px; padding-inline: 8px; font-size: 12px; gap: 4px; }
-  .role-link svg { width: 14px; height: 14px; }
-  .site-header-controls { gap: 6px; }
   .account-trigger { min-width: 38px; padding-inline: 7px; }
   .account-trigger span { display: none; }
   .page-scroll { scrollbar-gutter: auto; scroll-padding-block: 12px; }
@@ -705,7 +665,7 @@ button, a, textarea { -webkit-tap-highlight-color: transparent; }
 }
 
 @media (max-width: 350px) {
-  .role-link svg, .course-icon { display: none; }
+  .course-icon { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
