@@ -44,6 +44,15 @@ npm run dev
 
 4. 백엔드 `CORS_ORIGINS`에 프론트엔드 주소(예: `http://localhost:5173`)를 추가하고, 백엔드와 Vite를 다시 실행합니다. 학생은 학교 이메일로 가입하거나 로그인하고, 교수는 서버에 등록된 교수 계정으로 로그인합니다.
 
+Railway가 로컬 브라우저 주소를 허용하지 않는 경우, 로컬 `.env.local`에서 Vite 프록시를 사용할 수 있습니다. 아래 설정으로 Vite를 다시 실행하면 개발 서버와 `npm run preview`가 프론트와 같은 주소의 `/api`를 팀 서버로 전달합니다.
+
+```dotenv
+VITE_API_BASE_URL=/api
+API_PROXY_TARGET=https://api-production-f55f4175.up.railway.app
+```
+
+정적 프론트 배포에서 API에 직접 연결하려면 빌드 시 `VITE_API_BASE_URL`에 Railway 주소를 설정하고, Railway의 `CORS_ORIGINS`에 프론트 배포 주소를 추가합니다.
+
 실제 인증 메일 발송에는 백엔드 SMTP 설정이 필요합니다. JWT 서명 키, SMTP 연결 정보, 판단 모델 키는 백엔드 환경변수에 설정합니다. 학교메일 인증은 `@knu.ac.kr` 메일을 받을 수 있는지 확인합니다. 실명과 재학 여부를 확인하려면 학교 시스템 연동이 필요합니다.
 
 교수의 강의 추가를 사용하려면 서버에 교수 권한으로 동작하는 `POST /api/courses`가 있어야 합니다.
