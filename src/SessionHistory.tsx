@@ -5,9 +5,10 @@ import './instructor.css';
 
 type SessionHistoryProps = {
   session: CourseSession;
+  showAnswered?: boolean;
 };
 
-export function SessionHistory({ session }: SessionHistoryProps) {
+export function SessionHistory({ session, showAnswered = true }: SessionHistoryProps) {
   const { questions } = session;
   const sectionTitle = useId();
   const answeredCount = questions.filter((question) => question.answered).length;
@@ -21,7 +22,7 @@ export function SessionHistory({ session }: SessionHistoryProps) {
         </div>
         <dl className="history-metrics">
           <div><dt>질문</dt><dd>{questions.length}개</dd></div>
-          <div><dt>답변 완료</dt><dd>{answeredCount}개</dd></div>
+          {showAnswered && <div><dt>답변 완료</dt><dd>{answeredCount}개</dd></div>}
         </dl>
       </header>
 
@@ -30,10 +31,10 @@ export function SessionHistory({ session }: SessionHistoryProps) {
           {questions.map((question) => (
             <li key={question.id} className="history-question">
               <div className="history-question-header">
-                <span className="instructor-question-status" data-answered={question.answered}>
+                {showAnswered && <span className="instructor-question-status" data-answered={question.answered}>
                   {question.answered && <Icon name="check" size={13} />}
                   {question.answered ? '답변 완료' : '미답변'}
-                </span>
+                </span>}
                 <span className="history-question-time"><Icon name="clock" size={14} />{question.time}</span>
               </div>
               <p className="instructor-question-text">{question.text}</p>

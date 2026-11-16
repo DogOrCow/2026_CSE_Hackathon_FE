@@ -7,7 +7,7 @@ type InstructorLiveProps = {
   questions: Question[];
   ended: boolean;
   onToggleAnswered: (id: string) => Promise<void>;
-  onEnd: () => void;
+  onEnd?: () => void;
   onHistory: () => void;
 };
 
@@ -38,7 +38,7 @@ export function InstructorLive({
 
   function endSession() {
     confirmation.current?.close();
-    onEnd();
+    onEnd?.();
   }
 
   return (
@@ -60,7 +60,7 @@ export function InstructorLive({
             <Icon name="archive" size={17} />
             수업 기록
           </button>
-        ) : (
+        ) : onEnd && (
           <button
             className="instructor-button instructor-button--end"
             onClick={() => confirmation.current?.showModal()}
@@ -119,7 +119,7 @@ export function InstructorLive({
         )}
       </section>
 
-      <dialog
+      {onEnd && <dialog
         aria-labelledby={confirmationTitle}
         aria-describedby={confirmationDescription}
         className="instructor-confirmation"
@@ -132,7 +132,7 @@ export function InstructorLive({
           <button className="instructor-button instructor-button--quiet" onClick={() => confirmation.current?.close()} type="button">취소</button>
           <button className="instructor-button instructor-button--confirm" onClick={endSession} type="button">이동</button>
         </div>
-      </dialog>
+      </dialog>}
     </div>
   );
 }

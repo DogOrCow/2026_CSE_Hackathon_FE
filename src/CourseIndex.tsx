@@ -8,7 +8,7 @@ type CourseIndexProps = {
   role: 'student' | 'professor'
   courses: Course[]
   liveCourseId: string | null
-  onJoin?: (code: string) => string | null
+  onJoin?: (code: string) => string | null | Promise<string | null>
   onOpen: (course: Course) => void
 }
 
@@ -16,17 +16,34 @@ function CourseCodeForm({ onJoin }: { onJoin: NonNullable<CourseIndexProps['onJo
   const fieldId = useId()
   const feedbackId = useId()
   const input = useRef<HTMLInputElement>(null)
+  const pending = useRef(false)
+  const [joining, setJoining] = useState(false)
   const [code, setCode] = useState('')
   const [error, setError] = useState<{ message: string; attempt: number } | null>(null)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (pending.current) return
     const normalizedCode = code.trim().toUpperCase()
-    const message = !normalizedCode
+    let message: string | null = !normalizedCode
       ? '과목 코드를 입력해 주세요.'
       : /^[A-Z0-9]+(?:-[A-Z0-9]+)*$/.test(normalizedCode)
-        ? onJoin(normalizedCode)
+        ? null
         : '과목 코드는 영문, 숫자, 하이픈으로 입력해 주세요.'
+
+    if (!message) {
+      pending.current = true
+      setJoining(true)
+      setError(null)
+      try {
+        message = await onJoin(normalizedCode)
+      } catch {
+        message = '지금은 과목에 입장할 수 없어요. 다시 시도해 주세요.'
+      } finally {
+        pending.current = false
+        setJoining(false)
+      }
+    }
 
     if (message) {
       setError((previous) => ({ message, attempt: (previous?.attempt ?? 0) + 1 }))
@@ -38,7 +55,7 @@ function CourseCodeForm({ onJoin }: { onJoin: NonNullable<CourseIndexProps['onJo
   }
 
   return (
-    <form className="course-code-form" onSubmit={handleSubmit}>
+    <form className="course-code-form" onSubmit={(event) => void handleSubmit(event)}>
       <label htmlFor={fieldId}>과목 코드로 들어가기</label>
       <div className="course-code-controls">
         <input
@@ -50,6 +67,7 @@ function CourseCodeForm({ onJoin }: { onJoin: NonNullable<CourseIndexProps['onJo
           autoComplete="off"
           autoCapitalize="characters"
           spellCheck={false}
+          readOnly={joining}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? feedbackId : undefined}
           onChange={(event) => {
@@ -57,7 +75,7 @@ function CourseCodeForm({ onJoin }: { onJoin: NonNullable<CourseIndexProps['onJo
             setError(null)
           }}
         />
-        <button type="submit" className="course-code-submit">입장</button>
+        <button type="submit" className="course-code-submit" disabled={joining}>{joining ? '입장 중' : '입장'}</button>
       </div>
       <div id={feedbackId} aria-live="polite" aria-atomic="true">
         {error && (
@@ -75,39 +93,41 @@ export function CourseIndex({ role, courses, liveCourseId, onJoin, onOpen }: Cou
   const liveTitle = useId()
   const pastTitle = useId()
   const isStudent = role === 'student'
-  const liveCourse = courses.find((course) => course.id === liveCourseId)
-  const liveSession = liveCourse?.sessions.find((session) => session.live)
-  const otherCourses = courses.filter((course) => course.id !== liveCourseId)
+  const liveCourses = courses.filter((course) => course.isLive ?? course.id === liveCourseId)
+  const otherCourses = courses.filter((course) => !(course.isLive ?? course.id === liveCourseId))
 
   return (
     <div className="course-index">
       <h1>내 {isStudent ? '과목' : '강의'}</h1>
       {isStudent && onJoin && <CourseCodeForm onJoin={onJoin} />}
 
-      {liveCourse && (
+      {liveCourses.length > 0 && (
         <section className="course-index-section" aria-labelledby={liveTitle}>
           <h2 id={liveTitle}>지금 수업 중</h2>
-          <button
-            type="button"
-            className="course-live-card"
-            onClick={() => onOpen(liveCourse)}
-          >
-            <span className="course-index-card-info">
-              <span className="course-index-card-heading">
-                <span className="course-index-card-name">{liveCourse.name}</span>
-                <span className="course-index-live-status"><i aria-hidden="true" />수업 중</span>
-              </span>
-              <span className="course-index-meta">
-                {isStudent ? liveCourse.instructor : `코드 ${liveCourse.code}`}
-                {liveCourse.schedule && ` · ${liveCourse.schedule}`}
-                {liveSession && ` · 질문 ${liveSession.questions.length}개`}
-              </span>
-            </span>
-            <span className="course-index-live-cta">
-              {isStudent ? '질문창 들어가기' : '질문 보기'}
-              <Icon name="chevron-right" size={15} />
-            </span>
-          </button>
+          <div className="course-live-list">
+            {liveCourses.map((liveCourse) => {
+              const questionCount = liveCourse.liveQuestionCount ?? liveCourse.sessions.find((session) => session.live)?.questions.length
+              return (
+                <button key={liveCourse.id} type="button" className="course-live-card" onClick={() => onOpen(liveCourse)}>
+                  <span className="course-index-card-info">
+                    <span className="course-index-card-heading">
+                      <span className="course-index-card-name">{liveCourse.name}</span>
+                      <span className="course-index-live-status"><i aria-hidden="true" />수업 중</span>
+                    </span>
+                    <span className="course-index-meta">
+                      {isStudent ? liveCourse.instructor : `코드 ${liveCourse.code}`}
+                      {liveCourse.schedule && ` · ${liveCourse.schedule}`}
+                      {questionCount !== undefined && ` · 질문 ${questionCount}개`}
+                    </span>
+                  </span>
+                  <span className="course-index-live-cta">
+                    {isStudent ? '질문창 들어가기' : '질문 보기'}
+                    <Icon name="chevron-right" size={15} />
+                  </span>
+                </button>
+              )
+            })}
+          </div>
         </section>
       )}
 

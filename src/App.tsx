@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { AuthScreen } from './AuthScreen'
+import {
+  API_ENABLED, ApiError, enrollCourse, getArchivedQuestions, getArchivedSessions, getCourses, getLiveCourse,
+  mapApiArchiveSession, mapApiCourse, mapApiQuestion,
+} from './api'
+import { useApiAuth } from './apiAuth'
+import { useApiResource, useApiRoom } from './apiData'
 import { useProfessorAuth, useStudentAuth } from './auth'
 import { CourseArchive } from './CourseArchive'
 import { CourseIndex } from './CourseIndex'
@@ -108,6 +114,19 @@ function AccountMenu({ displayName, onSignOut }: { displayName: string; onSignOu
   )
 }
 
+function ApiStatus({ message, onRetry, error = false }: {
+  message: string
+  onRetry?: () => void
+  error?: boolean
+}) {
+  return (
+    <div className="api-status">
+      <p role={error ? 'alert' : 'status'}>{message}</p>
+      {onRetry && <button className="history-link" type="button" onClick={onRetry}>다시 시도</button>}
+    </div>
+  )
+}
+
 function useComposerViewport(shell: { current: HTMLDivElement | null }, enabled: boolean) {
   useEffect(() => {
     const viewport = window.visualViewport
@@ -144,38 +163,73 @@ export function App() {
   const [newestQuestion, setNewestQuestion] = useState<string | null>(null)
   const shell = useRef<HTMLDivElement>(null)
   const scrollArea = useRef<HTMLElement>(null)
-  const studentAuth = useStudentAuth()
-  const professorAuth = useProfessorAuth()
+  const mockStudent = useStudentAuth()
+  const mockProfessor = useProfessorAuth()
+  const apiStudent = useApiAuth('student')
+  const apiProfessor = useApiAuth('professor')
   const isStudent = route.role === 'student'
-  const auth = isStudent ? studentAuth : professorAuth
-  const studentEmail = studentAuth.student?.email ?? null
+  const apiAuth = isStudent ? apiStudent : apiProfessor
+  const auth = API_ENABLED ? apiAuth : isStudent ? mockStudent : mockProfessor
+  const token = API_ENABLED ? apiAuth.token : null
+  const studentEmail = API_ENABLED ? null : mockStudent.student?.email ?? null
   const { courseIds, enroll } = useEnrollments(studentEmail)
-  const { state, submitQuestion, toggleReaction, toggleAnswered, endSession } = useClassroom(isStudent ? studentEmail : null)
-  const courses = COURSES.filter((course) => isStudent ? courseIds.includes(course.id) : course.instructor === SESSION.instructor)
-  const scheduledCourse = courses.find((course) => course.id === SESSION.courseId)
-  const liveCourseId = !state.ended && scheduledCourse ? scheduledCourse.id : null
+  const mockClassroom = useClassroom(isStudent ? studentEmail : null)
+  const remoteCourses = useApiResource(token, async (signal) => (await getCourses(token!, signal)).map((course) => mapApiCourse(course)))
+  const courses = API_ENABLED ? remoteCourses.data ?? [] : COURSES.filter((course) => (
+    isStudent ? courseIds.includes(course.id) : course.instructor === SESSION.instructor
+  ))
+  const scheduledCourse = courses.find((course) => API_ENABLED
+    ? course.isLive
+    : course.id === SESSION.courseId && !mockClassroom.state.ended
+  )
+  const liveCourseId = scheduledCourse?.id ?? null
   const professorInClass = !isStudent && (route.view === 'home' || route.view === 'login') && Boolean(liveCourseId)
   const activeCourse = professorInClass ? scheduledCourse : courses.find((course) => course.id === route.courseId)
-  const liveSession = activeCourse?.sessions.find((session) => session.live)
-  const hasClassPage = Boolean(activeCourse && (route.view === 'live' || route.view === 'history' || professorInClass))
   const authView = auth.student ? null : isStudent && route.view === 'signup' ? 'signup' : 'login'
-  const requestsLive = route.view === 'live' && (!route.sessionId || route.sessionId === liveSession?.id)
-  const isLive = !authView && hasClassPage && Boolean(liveSession && (requestsLive || professorInClass))
-  const isHistory = !authView && hasClassPage && !isLive
+  const wantsLive = !authView && (route.view === 'live' || professorInClass)
+  const apiRoom = useApiRoom(token, wantsLive ? activeCourse?.id : undefined)
+  const liveSession = API_ENABLED ? apiRoom.session ?? undefined : activeCourse?.sessions.find((session) => session.live)
+  const classroom = API_ENABLED ? apiRoom : mockClassroom
+  const state = API_ENABLED ? apiRoom : mockClassroom.state
+  const isLive = Boolean(activeCourse && wantsLive && (API_ENABLED || liveSession) &&
+    (!route.sessionId || !liveSession || route.sessionId === liveSession.id))
+  const isHistory = Boolean(!authView && activeCourse && !isLive && (route.view === 'history' || wantsLive))
   const liveQuestions = isLive ? state.questions.slice().reverse() : []
   const visibleView = authView ?? (isLive ? 'live' : isHistory ? 'history' : 'courses')
   const viewKey = `${route.role}:${visibleView}:${activeCourse?.id ?? ''}:${auth.student?.email ?? ''}`
 
-  const historySessions = isHistory && activeCourse
+  const archiveCourseId = isHistory ? activeCourse?.id : undefined
+  const archiveIsLive = activeCourse?.isLive === true
+  const remoteSessions = useApiResource(token && archiveCourseId ? `${token}:${archiveCourseId}:${archiveIsLive}` : null, async (signal) => {
+    const sessions = await getArchivedSessions(archiveCourseId!, token!, signal)
+    let openSession: number | undefined
+    if (archiveIsLive && sessions.length > 0) {
+      try {
+        openSession = (await getLiveCourse(archiveCourseId!, token!, signal)).session.id
+      } catch (error) {
+        signal.throwIfAborted()
+        if (!(error instanceof ApiError) || error.code !== 'NOT_IN_CLASS') throw error
+      }
+    }
+    return sessions.filter((session) => session.id !== openSession).map((session) => mapApiArchiveSession(session))
+  })
+  const historySessions = API_ENABLED ? remoteSessions.data ?? [] : isHistory && activeCourse
     ? activeCourse.sessions.filter((session) => !session.live || state.ended).map((session) => (
       session.live ? { ...session, questions: state.questions } : session
     ))
     : []
   const selectedSession = historySessions.find((session) => session.id === route.sessionId) ?? historySessions[0] ?? null
-  const archiveRoute = activeCourse ? courseRoute(route.role, activeCourse, 'history', state.ended ? liveSession : undefined) : null
+  const remoteHistory = useApiResource(token && selectedSession ? `${token}:${selectedSession.id}` : null, async (signal) => (
+    (await getArchivedQuestions(selectedSession!.id, token!, signal)).map(mapApiQuestion)
+  ))
+  const archiveRoute = activeCourse ? {
+    ...courseRoute(route.role, activeCourse, 'history', state.ended ? liveSession : undefined),
+    sessionId: state.ended ? liveSession?.id ?? route.sessionId : undefined,
+  } : null
   const coursesRoute: Route = { role: route.role, view: 'courses' }
+  const roomReady = !API_ENABLED || Boolean(apiRoom.session) || apiRoom.ended
 
-  useComposerViewport(shell, isStudent && isLive && !state.ended)
+  useComposerViewport(shell, isStudent && isLive && roomReady && !state.ended)
 
   useEffect(() => {
     const update = () => setRoute(readRoute())
@@ -184,11 +238,39 @@ export function App() {
   }, [])
 
   useEffect(() => {
-    if (!auth.student || !professorInClass || !activeCourse || !liveSession) return
+    if (!auth.student || !professorInClass || !activeCourse || (!API_ENABLED && !liveSession)) return
     const currentClass = courseRoute('professor', activeCourse, 'live', liveSession)
     window.history.replaceState(null, '', routeHref(currentClass))
     setRoute(currentClass)
   }, [auth.student, professorInClass, activeCourse, liveSession])
+
+  useEffect(() => {
+    if (!API_ENABLED || !isLive || !liveSession || route.sessionId || !activeCourse) return
+    const currentClass = courseRoute(route.role, activeCourse, 'live', liveSession)
+    window.history.replaceState(null, '', routeHref(currentClass))
+    setRoute(currentClass)
+  }, [activeCourse, isLive, liveSession, route.role, route.sessionId])
+
+  const retryCourses = remoteCourses.retry
+  useEffect(() => {
+    if (!token) return
+    const timer = window.setInterval(retryCourses, 30000)
+    window.addEventListener('focus', retryCourses)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', retryCourses)
+    }
+  }, [token, retryCourses])
+
+  useEffect(() => {
+    if (token && apiRoom.ended) retryCourses()
+  }, [token, apiRoom.ended, retryCourses])
+
+  const unauthorized = [remoteCourses.error, apiRoom.error, remoteSessions.error, remoteHistory.error]
+    .some((error) => error instanceof ApiError && error.status === 401)
+  useEffect(() => {
+    if (token && unauthorized) auth.signOut()
+  }, [token, unauthorized, auth])
 
   useEffect(() => {
     if (scrollArea.current) scrollArea.current.scrollTop = 0
@@ -220,11 +302,28 @@ export function App() {
 
   function openCourse(course: Course) {
     const current = course.sessions.find((session) => session.live)
-    if (current && !state.ended) navigate(courseRoute(route.role, course, 'live', current))
+    if (API_ENABLED ? course.isLive : current && !state.ended) navigate(courseRoute(route.role, course, 'live', current))
     else navigate(courseRoute(route.role, course, 'history', course.sessions[0]))
   }
 
-  function joinCourse(code: string) {
+  async function joinCourse(code: string) {
+    if (API_ENABLED) {
+      if (!token) return '다시 로그인한 뒤 과목 코드를 입력해 주세요.'
+      try {
+        const course = mapApiCourse(await enrollCourse(code, token))
+        remoteCourses.updateData((current) => [...(current ?? []).filter((entry) => entry.id !== course.id), course])
+        retryCourses()
+        if (routeHref(readRoute()) === routeHref(route)) openCourse(course)
+        return null
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          auth.signOut()
+          return null
+        }
+        if (error instanceof ApiError && error.code === 'ALREADY_ENROLLED') retryCourses()
+        return error instanceof ApiError ? error.message : '과목에 입장하지 못했어요. 다시 시도해 주세요.'
+      }
+    }
     const course = findCourseByCode(code)
     if (!course) return '없는 코드예요. 교수님이 알려준 코드를 다시 확인해주세요.'
     enroll(course.id)
@@ -244,7 +343,7 @@ export function App() {
     navigate({ role: route.role, view: 'login' }, true)
   }
 
-  const indexCourses = courses.map((course) => course.id === liveCourseId ? ({
+  const indexCourses = API_ENABLED ? courses : courses.map((course) => course.id === liveCourseId ? ({
     ...course,
     sessions: course.sessions.map((session) => session.live ? { ...session, questions: state.questions } : session),
   }) : course)
@@ -277,19 +376,27 @@ export function App() {
       </header>
 
       <main ref={scrollArea} className="page-scroll" tabIndex={-1}>
-        {authView ? (
+        {API_ENABLED && (apiAuth.loading || apiAuth.error) ? (
+          <div className="page-content">
+            <ApiStatus message={apiAuth.error ?? '로그인 상태를 확인하고 있어요.'} error={Boolean(apiAuth.error)}
+              onRetry={apiAuth.error ? apiAuth.retry : undefined} />
+          </div>
+        ) : authView ? (
           <AuthScreen
             key={viewKey}
             role={route.role}
             view={authView}
             open={(view) => navigate({ role: route.role, view })}
+            requestEmailCode={API_ENABLED ? apiStudent.requestEmailCode : undefined}
             signIn={async (...args) => {
               const result = await auth.signIn(...args)
               if (result.student) finishAuth()
               return result
             }}
-            signUp={isStudent ? async (...args) => {
-              const result = await studentAuth.signUp(...args)
+            signUp={isStudent ? async (email, password, verification) => {
+              const result = API_ENABLED
+                ? await apiStudent.signUp(email, password, verification)
+                : await mockStudent.signUp(email, password)
               if (result.student) finishAuth()
               return result
             } : undefined}
@@ -311,44 +418,68 @@ export function App() {
                 <CourseBanner
                   course={activeCourse}
                   session={isLive ? liveSession : undefined}
-                  status={isLive ? state.ended ? 'ended' : 'live' : undefined}
+                  status={isLive && roomReady ? state.ended ? 'ended' : 'live' : undefined}
                 />
                 {isHistory ? (
                   <>
-                    <CourseArchive
-                      course={activeCourse}
-                      sessions={[...historySessions].reverse()}
-                      selected={selectedSession}
-                      liveAvailable={activeCourse.id === liveCourseId}
-                      onSelect={(session) => navigate(courseRoute(route.role, activeCourse, 'history', session))}
-                      onOpenLive={() => navigate(courseRoute(route.role, activeCourse, 'live', liveSession))}
-                    />
-                    {selectedSession && <SessionHistory key={selectedSession.id} session={selectedSession} />}
+                    {API_ENABLED && remoteSessions.error && <ApiStatus message={remoteSessions.error.message} error onRetry={remoteSessions.retry} />}
+                    {API_ENABLED && remoteSessions.loading && !remoteSessions.data ? (
+                      <ApiStatus message="차시 목록을 불러오고 있어요." />
+                    ) : (!API_ENABLED || remoteSessions.data) && (
+                      <CourseArchive
+                        course={activeCourse}
+                        sessions={historySessions.slice().reverse()}
+                        selected={selectedSession}
+                        liveAvailable={API_ENABLED ? Boolean(activeCourse.isLive) : activeCourse.id === liveCourseId}
+                        onSelect={(session) => navigate(courseRoute(route.role, activeCourse, 'history', session))}
+                        onOpenLive={() => navigate(courseRoute(route.role, activeCourse, 'live', liveSession))}
+                      />
+                    )}
+                    {selectedSession && (API_ENABLED ? (
+                      remoteHistory.error ? <ApiStatus message={remoteHistory.error.message} error onRetry={remoteHistory.retry} />
+                        : remoteHistory.loading ? <ApiStatus message="질문 기록을 불러오고 있어요." />
+                        : remoteHistory.data && <SessionHistory key={selectedSession.id} session={{ ...selectedSession, questions: remoteHistory.data }} showAnswered={false} />
+                    ) : <SessionHistory key={selectedSession.id} session={selectedSession} />)}
                   </>
-                ) : isStudent ? (
-                  <StudentFeed questions={liveQuestions} ended={state.ended} newestQuestion={newestQuestion} onReact={toggleReaction} />
                 ) : (
-                  <InstructorLive
-                    questions={liveQuestions}
-                    ended={state.ended}
-                    onToggleAnswered={toggleAnswered}
-                    onEnd={() => void endSession()}
-                    onHistory={() => archiveRoute && navigate(archiveRoute)}
-                  />
+                  <>
+                    {API_ENABLED && apiRoom.error && <ApiStatus message={apiRoom.error.message} error onRetry={apiRoom.retry} />}
+                    {API_ENABLED && apiRoom.actionError && <ApiStatus message={apiRoom.actionError} error />}
+                    {API_ENABLED && apiRoom.reconnecting && !apiRoom.error && <ApiStatus message="실시간 연결을 다시 시도하고 있어요." />}
+                    {API_ENABLED && apiRoom.loading && !roomReady && <ApiStatus message="질문창을 불러오고 있어요." />}
+                    {roomReady && (isStudent ? (
+                      <StudentFeed questions={liveQuestions} ended={state.ended} newestQuestion={newestQuestion} onReact={classroom.toggleReaction} />
+                    ) : (
+                      <InstructorLive
+                        questions={liveQuestions}
+                        ended={state.ended}
+                        onToggleAnswered={classroom.toggleAnswered}
+                        onEnd={API_ENABLED ? undefined : () => void mockClassroom.endSession()}
+                        onHistory={() => archiveRoute && navigate(archiveRoute)}
+                      />
+                    ))}
+                  </>
                 )}
               </>
             ) : (
-              <CourseIndex role={route.role} courses={indexCourses} liveCourseId={liveCourseId} onOpen={openCourse} onJoin={isStudent ? joinCourse : undefined} />
+              <>
+                {API_ENABLED && remoteCourses.error && <ApiStatus message={remoteCourses.error.message} error onRetry={retryCourses} />}
+                {API_ENABLED && remoteCourses.loading && !remoteCourses.data ? (
+                  <ApiStatus message={isStudent ? '과목을 불러오고 있어요.' : '강의를 불러오고 있어요.'} />
+                ) : (!API_ENABLED || remoteCourses.data) && (
+                  <CourseIndex role={route.role} courses={indexCourses} liveCourseId={liveCourseId} onOpen={openCourse} onJoin={isStudent ? joinCourse : undefined} />
+                )}
+              </>
             )}
           </div>
         )}
       </main>
 
-      {isStudent && isLive && (
+      {isStudent && isLive && roomReady && (
         state.ended && archiveRoute ? (
           <ClosedSessionBar href={routeHref(archiveRoute)} onHistory={follow(archiveRoute)} />
         ) : (
-          <QuestionComposer key={viewKey} onSubmit={submitQuestion} onPosted={setNewestQuestion} />
+          <QuestionComposer key={viewKey} onSubmit={classroom.submitQuestion} onPosted={setNewestQuestion} />
         )
       )}
       <div className="sr-only" role="status">

@@ -7,6 +7,7 @@ export type CourseSession = {
   shortDate: string
   week: string
   start: string
+  end?: string
   questions: Question[]
   live?: boolean
 }
@@ -19,6 +20,8 @@ export type Course = {
   schedule: string
   nextClass: string
   sessions: CourseSession[]
+  isLive?: boolean
+  liveQuestionCount?: number
 }
 
 type ExampleQuestion = [time: string, text: string, reactionCount: number]

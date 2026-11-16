@@ -10,6 +10,7 @@ import {
   normalizeSchoolEmail,
 } from './auth'
 import type { AuthResult } from './auth'
+import type { EmailVerification } from './apiAuth'
 import './auth.css'
 
 type AuthView = 'login' | 'signup'
@@ -17,15 +18,17 @@ type AuthScreenProps = {
   view: AuthView
   role?: 'student' | 'professor'
   open: (view: AuthView) => void
+  requestEmailCode?: (email: string) => Promise<AuthResult>
   signIn: (email: string, password: string, remember: boolean) => Promise<AuthResult>
-  signUp?: (email: string, password: string) => Promise<AuthResult>
+  signUp?: (email: string, password: string, verification?: EmailVerification) => Promise<AuthResult>
 }
 
-type Challenge = { email: string; code: string; expiresAt: number }
+type Challenge = { email: string; mockCode?: string; expiresAt: number }
 type ErrorField = 'email' | 'code' | 'password' | 'policy' | 'form'
 type FieldError = { field: ErrorField; message: string }
 
-const codeDuration = 5 * 60 * 1000
+const mockCodeDuration = 5 * 60 * 1000
+const emailCodeDuration = 3 * 60 * 1000
 const schoolEmailPrompt = '@knu.ac.kr 학교 이메일을 입력해 주세요.'
 
 function makeCode(previousCode?: string) {
@@ -42,7 +45,7 @@ export function AuthScreen(props: AuthScreenProps) {
   return <AuthForm key={`${props.role ?? 'student'}:${props.view}`} {...props} />
 }
 
-function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenProps) {
+function AuthForm({ view, role = 'student', open, requestEmailCode, signIn, signUp }: AuthScreenProps) {
   const baseId = useId()
   const titleId = `${baseId}-title`
   const errorId = `${baseId}-error`
@@ -51,7 +54,8 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
   const [code, setCode] = useState('')
   const [remember, setRemember] = useState(false)
   const [consent, setConsent] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [sendingCode, setSendingCode] = useState(false)
   const [challenge, setChallenge] = useState<Challenge | null>(null)
   const [now, setNow] = useState(Date.now)
   const [error, setError] = useState<FieldError | null>(null)
@@ -60,11 +64,14 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
   const submitButton = useRef<HTMLButtonElement>(null)
   const isProfessor = role === 'professor'
   const isSignup = !isProfessor && view === 'signup'
+  const busy = submitting || sendingCode
   const demoEmail = isProfessor ? DEMO_PROFESSOR_EMAIL : DEMO_STUDENT_EMAIL
   const title = isProfessor ? '교수 로그인' : isSignup ? '학교 이메일로 가입' : '학교 이메일로 로그인'
   const intro = isProfessor
     ? '교수 계정으로 수업 중 올라온 질문을 확인하세요.'
-    : isSignup ? '테스트용 학교 이메일로 가입해 보세요.' : '학교 이메일로 수업 질문창에 입장하세요.'
+    : isSignup
+      ? requestEmailCode ? '학교 메일로 받은 인증번호를 입력해 주세요.' : '테스트용 학교 이메일로 가입해 보세요.'
+      : '학교 이메일로 수업 질문창에 입장하세요.'
   const secondsLeft = challenge ? Math.max(0, Math.ceil((challenge.expiresAt - now) / 1000)) : 0
 
   useEffect(() => {
@@ -97,7 +104,8 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
     if (error?.field === 'email' || error?.field === 'code' || error?.field === 'form') setError(null)
   }
 
-  function issueCode() {
+  async function issueCode() {
+    if (busy) return
     const address = normalizeSchoolEmail(email)
     if (!address) {
       setError({ field: 'email', message: schoolEmailPrompt })
@@ -105,11 +113,28 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
       return
     }
 
-    const currentTime = Date.now()
-    setChallenge({ email: address, code: makeCode(challenge?.code), expiresAt: currentTime + codeDuration })
-    setNow(currentTime)
-    setCode('')
     setError(null)
+    setSendingCode(true)
+    try {
+      if (requestEmailCode) {
+        const result = await requestEmailCode(address)
+        if (result.error) {
+          setError({ field: 'email', message: result.error })
+          return
+        }
+      }
+
+      const currentTime = Date.now()
+      const duration = requestEmailCode ? emailCodeDuration : mockCodeDuration
+      const mockCode = requestEmailCode ? undefined : makeCode(challenge?.mockCode)
+      setChallenge({ email: address, mockCode, expiresAt: currentTime + duration })
+      setNow(currentTime)
+      setCode('')
+    } catch {
+      setError({ field: 'email', message: '인증번호를 보내지 못했어요. 다시 시도해 주세요.' })
+    } finally {
+      setSendingCode(false)
+    }
   }
 
   function fillDemoAccount() {
@@ -138,7 +163,7 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
         setError({ field: 'code', message: '인증 시간이 지났어요. 인증번호를 다시 받아 주세요.' })
         return
       }
-      if (challenge.code !== code) {
+      if (code.length !== 6 || (!requestEmailCode && challenge.mockCode !== code)) {
         setError({ field: 'code', message: '인증번호 6자리를 다시 확인해 주세요.' })
         codeInput.current?.focus()
         return
@@ -156,10 +181,12 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
       return
     }
 
-    setBusy(true)
+    setSubmitting(true)
     setError(null)
     try {
-      const result = isSignup ? await signUp?.(address, password) : await signIn(address, password, remember)
+      const result = isSignup
+        ? await signUp?.(address, password, { code, agreed: consent })
+        : await signIn(address, password, remember)
       if (!result) {
         setError({ field: 'form', message: '지금은 가입을 진행할 수 없어요.' })
         return
@@ -168,7 +195,7 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
     } catch {
       setError({ field: 'form', message: '잠시 후 다시 시도해 주세요.' })
     } finally {
-      setBusy(false)
+      setSubmitting(false)
     }
   }
 
@@ -201,7 +228,7 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
               />
               {isSignup && (
                 <button className="auth-secondary" disabled={busy} onClick={issueCode} type="button">
-                  {challenge ? '재전송' : '인증번호 보내기'}
+                  {sendingCode ? '발송 중…' : challenge ? '재전송' : '인증번호 보내기'}
                 </button>
               )}
             </div>
@@ -213,7 +240,7 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
               <label htmlFor={`${baseId}-code`}>인증번호</label>
               <div className="auth-code-row">
                 <input
-                  autoComplete="off"
+                  autoComplete={requestEmailCode ? 'one-time-code' : 'off'}
                   disabled={busy}
                   id={`${baseId}-code`}
                   inputMode="numeric"
@@ -234,7 +261,11 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
                 </span>
               </div>
               <p className="auth-verification-notice" role="status">
-                {secondsLeft > 0 ? <>모의 인증번호 <strong>{challenge.code}</strong></> : '인증 시간이 지났어요. 인증번호를 다시 보내 주세요.'}
+                {secondsLeft === 0
+                  ? '인증 시간이 지났어요. 인증번호를 다시 보내 주세요.'
+                  : requestEmailCode
+                    ? '학교 메일로 인증번호를 보냈어요.'
+                    : <>모의 인증번호 <strong>{challenge.mockCode}</strong></>}
               </p>
               {fieldError('code')}
             </div>
@@ -251,7 +282,7 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
                 setPassword(event.target.value)
                 if (error?.field === 'password' || error?.field === 'form') setError(null)
               }}
-              placeholder={isSignup ? `${MIN_PASSWORD_LENGTH}자 이상인 테스트 비밀번호` : '비밀번호 입력'}
+              placeholder={isSignup ? `${MIN_PASSWORD_LENGTH}자 이상${requestEmailCode ? '' : '인 테스트 비밀번호'}` : '비밀번호 입력'}
               required
               type="password"
               value={password}
@@ -288,11 +319,11 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
 
           {fieldError('form')}
           <button className="auth-primary" disabled={busy} ref={submitButton} type="submit">
-            {isSignup ? (busy ? '가입 중…' : '가입하기') : (busy ? '로그인 중…' : '로그인')}
+            {isSignup ? (submitting ? '가입 중…' : '가입하기') : (submitting ? '로그인 중…' : '로그인')}
           </button>
         </form>
 
-        {isSignup ? (
+        {!requestEmailCode && (isSignup ? (
           <p className="auth-test-hint">인증번호는 이 화면에 표시돼요. 실제 메일은 발송되지 않아요.</p>
         ) : (
           <div className="auth-demo">
@@ -302,7 +333,7 @@ function AuthForm({ view, role = 'student', open, signIn, signUp }: AuthScreenPr
             </div>
             <button className="auth-secondary" disabled={busy} onClick={fillDemoAccount} type="button">계정 입력</button>
           </div>
-        )}
+        ))}
 
         {!isProfessor && (
           <footer className="auth-footer">

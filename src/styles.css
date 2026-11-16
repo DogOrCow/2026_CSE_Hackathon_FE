@@ -428,6 +428,25 @@ button, a, textarea { -webkit-tap-highlight-color: transparent; }
 .empty-feed h3 { font-size: 16px; }
 .empty-feed p { color: var(--muted); font-size: 14px; line-height: 1.5; }
 
+.api-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 14px 16px;
+  margin: 12px 0;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+  animation: feedback-in 200ms var(--ease) both;
+}
+
+.api-status p[role="alert"] { color: var(--ink); }
+
 .composer-bar {
   flex-shrink: 0;
   border-top: 1px solid var(--line);
