@@ -67,3 +67,17 @@ npm run preview
 ```
 
 빌드 결과는 `dist/`에 생성됩니다. API에 연결한 빌드가 필요하면 빌드할 때도 `VITE_API_BASE_URL`을 설정합니다.
+
+## Cloudflare Pages 배포
+
+Cloudflare Pages에서 GitHub의 `DogOrCow/2026_CSE_Hackathon_FE` 저장소를 연결하고 다음 값을 사용합니다. [Pages Git 연동 안내](https://developers.cloudflare.com/pages/get-started/git-integration/)
+
+| 설정 | 값 |
+| --- | --- |
+| 프로덕션 브랜치 | `main` |
+| 빌드 명령 | `VITE_API_BASE_URL=/api npm run build` |
+| 빌드 출력 디렉터리 | `dist` |
+
+Pages Function이 같은 출처의 `/api` 요청을 Railway로 전달합니다. 운영 API 주소를 바꿀 때는 Pages의 환경 변수 `API_PROXY_TARGET`에 새 HTTPS 서버 주소를 설정합니다. 기본 대상은 `https://api-production-f55f4175.up.railway.app`입니다.
+
+배포가 끝나면 `.pages.dev` 페이지에서 로그인 화면을 열고, 같은 주소의 `/api/me`가 로그인 전에는 `401 UNAUTHORIZED`를 반환하는지 확인합니다.
