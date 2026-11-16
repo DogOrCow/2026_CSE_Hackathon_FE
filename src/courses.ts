@@ -22,6 +22,16 @@ export type Course = {
   sessions: CourseSession[]
   isLive?: boolean
   liveQuestionCount?: number
+  semester?: string
+}
+
+export type CourseDraft = {
+  name: string
+  code: string
+  semester: string
+  days: number[]
+  startsAt: string
+  endsAt: string
 }
 
 type ExampleQuestion = [time: string, text: string, reactionCount: number]
@@ -247,13 +257,175 @@ export const COURSES: Course[] = [
   },
 ]
 
+type CourseCreation = { course: Course } | { error: string }
+type StoredCourse = { draft: CourseDraft; professorName: string }
+
+const catalogPrefix = 'babo3:catalog:v1:course:'
+const catalogChanged = 'babo3:catalog:changed'
+const weekdays = ['월', '화', '수', '목', '금', '토', '일']
+const demoDay = 1
+const timePattern = /^(?:[01]\d|2[0-3]):[0-5]\d$/
+const temporaryCourses = new Map<string, Course>()
+let storedCourses = new Map<string, { raw: string; course: Course }>()
+let catalogSnapshot = COURSES
+
+function validateDraft(draft: CourseDraft): string | null {
+  const name = draft.name.trim()
+  if (!name || name.length > 100) return '과목명은 1~100자로 입력해 주세요.'
+  const code = draft.code.trim()
+  if (code.length > 20 || !/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(code)) {
+    return '과목 코드는 영문, 숫자, 하이픈을 사용해 1~20자로 입력해 주세요.'
+  }
+  const semester = draft.semester.trim()
+  if (!semester || semester.length > 20) return '학기는 1~20자로 입력해 주세요.'
+  if (!Array.isArray(draft.days) || !draft.days.length || draft.days.some((day) => !Number.isInteger(day) || day < 0 || day >= weekdays.length)) {
+    return '수업 요일을 하나 이상 선택해 주세요.'
+  }
+  if (!timePattern.test(draft.startsAt) || !timePattern.test(draft.endsAt) || draft.startsAt >= draft.endsAt) {
+    return '종료 시각은 시작 시각보다 늦어야 해요.'
+  }
+  return null
+}
+
+function toCourse({ draft, professorName }: StoredCourse): Course {
+  const nextDay = Math.min(...draft.days.map((day) => {
+    const offset = (day - demoDay + weekdays.length) % weekdays.length
+    return offset === 0 && draft.startsAt <= SESSION.demoTime ? weekdays.length : offset
+  }))
+  const nextLabel = nextDay === 0 ? '오늘' : `다음 수업 ${weekdays[(demoDay + nextDay) % weekdays.length]}`
+
+  return {
+    id: `created-${draft.code.toLowerCase()}`,
+    code: draft.code,
+    name: draft.name,
+    instructor: professorName.endsWith(' 교수') ? professorName : `${professorName} 교수`,
+    schedule: `${draft.days.map((day) => weekdays[day]).join('·')} ${draft.startsAt}–${draft.endsAt}`,
+    nextClass: `${nextLabel} ${draft.startsAt}`,
+    semester: draft.semester,
+    sessions: [],
+    isLive: false,
+  }
+}
+
+function decodeCourse(raw: string, storageKey: string): Course | undefined {
+  try {
+    const record = JSON.parse(raw) as StoredCourse
+    if (
+      typeof record?.professorName !== 'string' ||
+      !record.professorName.trim() ||
+      !record.draft ||
+      validateDraft(record.draft) ||
+      storageKey !== catalogPrefix + record.draft.code ||
+      COURSES.some((course) => course.code === record.draft.code)
+    ) return undefined
+    return toCourse(record)
+  } catch {
+    return undefined
+  }
+}
+
+function getCatalogSnapshot(): Course[] {
+  if (typeof window === 'undefined') return COURSES
+  try {
+    const storage = window.localStorage
+    const entries = new Map<string, { raw: string; course: Course }>()
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index)
+      if (!key?.startsWith(catalogPrefix)) continue
+      const raw = storage.getItem(key)
+      if (raw === null) continue
+      const cached = storedCourses.get(key)
+      const course = cached?.raw === raw ? cached.course : decodeCourse(raw, key)
+      if (course) entries.set(key, { raw, course })
+    }
+    storedCourses = entries
+  } catch {
+    // Keep known courses available in this tab if browser storage is blocked.
+  }
+
+  const updates = new Map(temporaryCourses)
+  for (const [key, { course }] of storedCourses) updates.set(key, course)
+  const next = [...COURSES, ...updates.values()]
+  if (next.length !== catalogSnapshot.length || next.some((course, index) => course !== catalogSnapshot[index])) {
+    catalogSnapshot = next
+  }
+  return catalogSnapshot
+}
+
+function subscribeCatalog(listener: () => void) {
+  if (typeof window === 'undefined') return () => {}
+  const onStorage = (event: StorageEvent) => {
+    if (event.key === null || event.key.startsWith(catalogPrefix)) listener()
+  }
+  window.addEventListener(catalogChanged, listener)
+  window.addEventListener('storage', onStorage)
+  return () => {
+    window.removeEventListener(catalogChanged, listener)
+    window.removeEventListener('storage', onStorage)
+  }
+}
+
 export function findCourse(courseId: string): Course | undefined {
-  return COURSES.find((course) => course.id === courseId)
+  return getCatalogSnapshot().find((course) => course.id === courseId)
 }
 
 export function findCourseByCode(code: string): Course | undefined {
   const normalized = code.trim().toUpperCase()
-  return COURSES.find((course) => course.code === normalized)
+  return getCatalogSnapshot().find((course) => course.code === normalized)
+}
+
+async function createCourse(draft: CourseDraft, professorName: string): Promise<CourseCreation> {
+  const error = validateDraft(draft)
+  if (error) return { error }
+  if (!professorName.trim()) return { error: '교수 정보를 확인해 주세요.' }
+
+  const normalized = {
+    ...draft,
+    name: draft.name.trim(),
+    code: draft.code.trim().toUpperCase(),
+    semester: draft.semester.trim(),
+    days: [...new Set(draft.days)].sort((a, b) => a - b),
+  }
+  const key = catalogPrefix + normalized.code
+
+  function save(): CourseCreation {
+    if (findCourseByCode(normalized.code)) return { error: '이미 사용 중인 과목 코드예요.' }
+    const record = { draft: normalized, professorName: professorName.trim() }
+    const course = toCourse(record)
+    try {
+      const raw = JSON.stringify(record)
+      window.localStorage.setItem(key, raw)
+      storedCourses.set(key, { raw, course })
+      temporaryCourses.delete(key)
+    } catch {
+      // Preserve the change for the current tab if persistence is unavailable.
+      temporaryCourses.set(key, course)
+    }
+    window.dispatchEvent(new Event(catalogChanged))
+    return { course }
+  }
+
+  const locks = navigator.locks
+  if (!locks) return save()
+  let acquired = false
+  try {
+    return await locks.request(key, () => {
+      acquired = true
+      return save()
+    })
+  } catch (error) {
+    if (acquired) throw error
+    return save()
+  }
+}
+
+export function useMockCatalog(): {
+  courses: Course[]
+  findByCode: (code: string) => Course | undefined
+  createCourse: (draft: CourseDraft, professorName: string) => Promise<CourseCreation>
+} {
+  const courses = useSyncExternalStore(subscribeCatalog, getCatalogSnapshot, () => COURSES)
+  return { courses, findByCode: findCourseByCode, createCourse }
 }
 
 const emptyEnrollments: string[] = []
@@ -277,7 +449,7 @@ function readEnrollments(email: string | null) {
   try {
     const prefix = enrollmentPrefix(email)
     const storage = window.localStorage
-    const enrolled = COURSES
+    const enrolled = getCatalogSnapshot()
       .map((course) => course.id)
       .filter((id) => current.includes(id) || storage.getItem(`${prefix}${id}`) === '1')
     if (enrolled.length !== current.length) {
@@ -305,9 +477,11 @@ export function useEnrollments(email: string | null): {
     const handleStorage = (event: StorageEvent) => {
       if (event.key?.startsWith(prefix)) listener()
     }
+    const unsubscribeCatalog = subscribeCatalog(listener)
     window.addEventListener(prefix, listener)
     window.addEventListener('storage', handleStorage)
     return () => {
+      unsubscribeCatalog()
       window.removeEventListener(prefix, listener)
       window.removeEventListener('storage', handleStorage)
     }

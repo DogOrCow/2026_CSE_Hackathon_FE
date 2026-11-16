@@ -1,50 +1,53 @@
 .course-index {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(245px, 300px);
-  align-items: start;
-  gap: 26px 24px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
 }
 
-.course-index > h1 {
+.course-index-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.course-index-toolbar h1 {
   font-size: 30px;
   font-weight: 770;
   line-height: 1.25;
   letter-spacing: -.06em;
 }
 
-.course-code-form { grid-column: 2; color: var(--ink); }
-
-.course-code-form label {
-  display: block;
-  margin-bottom: 6px;
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.course-code-controls {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+.course-add-trigger {
+  display: inline-flex;
+  align-items: center;
   gap: 7px;
-}
-
-.course-code-controls input {
-  min-width: 0;
   min-height: 44px;
-  padding: 9px 12px;
+  padding: 0 11px 0 7px;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: 11px;
   background: var(--surface);
   color: var(--ink);
-  font: inherit;
-  font-size: 16px;
-  transition: border-color 150ms var(--ease);
+  font-size: 13px;
+  font-weight: 720;
+  white-space: nowrap;
+  transition: transform 210ms var(--ease), background-color 210ms var(--ease), border-color 210ms var(--ease), box-shadow 210ms var(--ease);
 }
 
-.course-code-controls input::placeholder { color: var(--muted); font-size: 13px; }
-.course-code-controls input:focus { border-color: var(--accent); }
-.course-code-controls input[aria-invalid="true"] { border-color: var(--danger); }
+.course-add-trigger:active { transform: scale(.96); }
 
-.course-code-submit, .course-index-live-cta {
+.course-add-icon {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--accent-soft);
+  transition: background-color 210ms var(--ease), color 210ms var(--ease), transform 260ms var(--ease);
+}
+
+.course-index-live-cta {
   min-height: 42px;
   display: inline-flex;
   align-items: center;
@@ -60,19 +63,6 @@
   font-weight: 680;
   transition: background-color 160ms var(--ease);
 }
-
-.course-code-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
-  margin-top: 7px;
-  color: var(--danger);
-  font-size: 13px;
-  line-height: 1.5;
-  animation: course-reveal 210ms var(--ease) both;
-}
-
-.course-code-error svg { flex: none; margin-top: 2px; }
 
 .course-index-section, .course-index-empty { grid-column: 1 / -1; min-width: 0; }
 
@@ -100,6 +90,14 @@
 .course-live-list {
   display: grid;
   gap: 8px;
+}
+
+.course-list-enter {
+  animation: course-reveal 420ms var(--ease) backwards;
+}
+
+.course-card-added {
+  animation: course-added 850ms var(--ease) both;
 }
 
 .course-live-card {
@@ -300,7 +298,9 @@
 }
 
 @media (hover: hover) {
-  .course-code-submit:hover, .course-live-card:hover .course-index-live-cta { background: var(--accent); }
+  .course-add-trigger:hover { border-color: #a5a5a5; box-shadow: 0 3px 10px #19191912; }
+  .course-add-trigger:hover .course-add-icon { color: var(--surface); background: var(--ink); transform: rotate(9deg); }
+  .course-live-card:hover .course-index-live-cta { background: var(--accent); }
   .course-live-card:hover, .course-index-row:hover { background: var(--bg); }
   .course-index-row:hover .course-index-row-end svg { transform: translateX(2px); }
   .course-archive-live:hover, .course-archive-arrow[aria-disabled="false"]:hover,
@@ -308,9 +308,8 @@
 }
 
 @media (max-width: 600px) {
-  .course-index { grid-template-columns: minmax(0, 1fr); gap: 19px; }
-  .course-index > h1 { font-size: 25px; }
-  .course-code-form { grid-column: 1; }
+  .course-index { gap: 19px; }
+  .course-index-toolbar h1 { font-size: 25px; }
   .course-live-card { padding: 11px; gap: 8px; }
   .course-live-card .course-index-card-name { font-size: 16px; }
   .course-index-live-cta { padding-inline: 8px; font-size: 12px; }
@@ -324,8 +323,14 @@
 }
 
 @keyframes course-reveal {
-  from { opacity: .38; transform: translateY(4px); }
+  from { opacity: .25; transform: translateY(12px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes course-added {
+  0% { background-color: var(--accent-soft); box-shadow: inset 0 0 0 2px #9b9b9b; }
+  38% { background-color: var(--accent-soft); box-shadow: inset 0 0 0 1px #a6a6a6; }
+  100% { box-shadow: inset 0 0 0 0 transparent; }
 }
 
 @keyframes course-live-signal {

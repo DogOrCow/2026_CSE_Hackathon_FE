@@ -2,16 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent, MouseEvent } from 'react'
 import { AuthScreen } from './AuthScreen'
 import {
-  API_ENABLED, ApiError, enrollCourse, getArchivedQuestions, getArchivedSessions, getCourses, getLiveCourse,
+  API_ENABLED, ApiError, createProfessorCourse, enrollCourse, getArchivedQuestions, getArchivedSessions, getCourses, getLiveCourse,
   mapApiArchiveSession, mapApiCourse, mapApiQuestion,
 } from './api'
 import { useApiAuth } from './apiAuth'
 import { useApiResource, useApiRoom } from './apiData'
 import { useProfessorAuth, useStudentAuth } from './auth'
 import { CourseArchive } from './CourseArchive'
+import { CourseDialog } from './CourseDialog'
 import { CourseIndex } from './CourseIndex'
-import { COURSES, findCourseByCode, useEnrollments } from './courses'
-import type { Course, CourseSession } from './courses'
+import { useEnrollments, useMockCatalog } from './courses'
+import type { Course, CourseDraft, CourseSession } from './courses'
 import { Icon } from './Icon'
 import { InstructorLive } from './InstructorLive'
 import { SessionHistory } from './SessionHistory'
@@ -161,6 +162,8 @@ function useComposerViewport(shell: { current: HTMLDivElement | null }, enabled:
 export function App() {
   const [route, setRoute] = useState<Route>(readRoute)
   const [newestQuestion, setNewestQuestion] = useState<string | null>(null)
+  const [courseDialogOpen, setCourseDialogOpen] = useState(false)
+  const [addedCourseId, setAddedCourseId] = useState<string>()
   const shell = useRef<HTMLDivElement>(null)
   const scrollArea = useRef<HTMLElement>(null)
   const mockStudent = useStudentAuth()
@@ -172,10 +175,11 @@ export function App() {
   const auth = API_ENABLED ? apiAuth : isStudent ? mockStudent : mockProfessor
   const token = API_ENABLED ? apiAuth.token : null
   const studentEmail = API_ENABLED ? null : mockStudent.student?.email ?? null
+  const mockCatalog = useMockCatalog()
   const { courseIds, enroll } = useEnrollments(studentEmail)
   const mockClassroom = useClassroom(isStudent ? studentEmail : null)
-  const remoteCourses = useApiResource(token, async (signal) => (await getCourses(token!, signal)).map((course) => mapApiCourse(course)))
-  const courses = API_ENABLED ? remoteCourses.data ?? [] : COURSES.filter((course) => (
+  const remoteCourses = useApiResource<Course[]>(token, async (signal) => (await getCourses(token!, signal)).map((course) => mapApiCourse(course)))
+  const courses = API_ENABLED ? remoteCourses.data ?? [] : mockCatalog.courses.filter((course) => (
     isStudent ? courseIds.includes(course.id) : course.instructor === SESSION.instructor
   ))
   const scheduledCourse = courses.find((course) => API_ENABLED
@@ -275,6 +279,8 @@ export function App() {
   useEffect(() => {
     if (scrollArea.current) scrollArea.current.scrollTop = 0
     setNewestQuestion(null)
+    setCourseDialogOpen(false)
+    setAddedCourseId(undefined)
   }, [viewKey])
 
   useEffect(() => {
@@ -306,14 +312,20 @@ export function App() {
     else navigate(courseRoute(route.role, course, 'history', course.sessions[0]))
   }
 
+  function rememberAddedCourse(course: Course) {
+    if (API_ENABLED) {
+      remoteCourses.updateData((current) => [...(current ?? []).filter((entry) => entry.id !== course.id), course])
+      retryCourses()
+    }
+    setAddedCourseId(course.id)
+  }
+
   async function joinCourse(code: string) {
     if (API_ENABLED) {
       if (!token) return '다시 로그인한 뒤 과목 코드를 입력해 주세요.'
       try {
         const course = mapApiCourse(await enrollCourse(code, token))
-        remoteCourses.updateData((current) => [...(current ?? []).filter((entry) => entry.id !== course.id), course])
-        retryCourses()
-        if (routeHref(readRoute()) === routeHref(route)) openCourse(course)
+        rememberAddedCourse(course)
         return null
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -324,11 +336,38 @@ export function App() {
         return error instanceof ApiError ? error.message : '과목에 입장하지 못했어요. 다시 시도해 주세요.'
       }
     }
-    const course = findCourseByCode(code)
+    const course = mockCatalog.findByCode(code)
     if (!course) return '없는 코드예요. 교수님이 알려준 코드를 다시 확인해주세요.'
+    if (courseIds.includes(course.id)) return '이미 추가한 과목이에요. 과목 목록에서 확인해 주세요.'
     enroll(course.id)
-    openCourse(course)
+    rememberAddedCourse(course)
     return null
+  }
+
+  async function addCourse(draft: CourseDraft) {
+    if (isStudent || !auth.student) return '교수 계정으로 로그인한 뒤 강의를 추가해 주세요.'
+    if (!API_ENABLED) {
+      const result = await mockCatalog.createCourse(draft, auth.student.displayName)
+      if ('error' in result) return result.error
+      rememberAddedCourse(result.course)
+      return null
+    }
+
+    if (!token) return '다시 로그인한 뒤 강의를 추가해 주세요.'
+    try {
+      rememberAddedCourse(mapApiCourse(await createProfessorCourse(draft, token)))
+      return null
+    } catch (error) {
+      if (error instanceof ApiError) {
+        if (error.status === 401) {
+          auth.signOut()
+          return null
+        }
+        if (error.status === 404 || error.status === 405) return '연결된 서버가 강의 추가를 지원하지 않아요.'
+        return error.message
+      }
+      return '강의를 추가하지 못했어요. 잠시 후 다시 시도해 주세요.'
+    }
   }
 
   function finishAuth() {
@@ -467,7 +506,17 @@ export function App() {
                 {API_ENABLED && remoteCourses.loading && !remoteCourses.data ? (
                   <ApiStatus message={isStudent ? '과목을 불러오고 있어요.' : '강의를 불러오고 있어요.'} />
                 ) : (!API_ENABLED || remoteCourses.data) && (
-                  <CourseIndex role={route.role} courses={indexCourses} liveCourseId={liveCourseId} onOpen={openCourse} onJoin={isStudent ? joinCourse : undefined} />
+                  <CourseIndex
+                    role={route.role}
+                    courses={indexCourses}
+                    liveCourseId={liveCourseId}
+                    addedCourseId={courseDialogOpen ? undefined : addedCourseId}
+                    onAdd={() => {
+                      setAddedCourseId(undefined)
+                      setCourseDialogOpen(true)
+                    }}
+                    onOpen={openCourse}
+                  />
                 )}
               </>
             )}
@@ -482,6 +531,14 @@ export function App() {
           <QuestionComposer key={viewKey} onSubmit={classroom.submitQuestion} onPosted={setNewestQuestion} />
         )
       )}
+      <CourseDialog
+        key={route.role}
+        role={route.role}
+        open={courseDialogOpen && visibleView === 'courses' && Boolean(auth.student)}
+        onClose={() => setCourseDialogOpen(false)}
+        onJoin={isStudent ? joinCourse : undefined}
+        onCreate={isStudent ? undefined : addCourse}
+      />
       <div className="sr-only" role="status">
         {newestQuestion ? `질문을 등록했어요. 수업 질문 ${state.questions.length}개.` : ''}
       </div>

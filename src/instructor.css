@@ -236,6 +236,10 @@
   color: #333333;
 }
 
+.instructor-question .instructor-question-status {
+  animation: status-in 315ms var(--ease) both;
+}
+
 .instructor-question-text {
   margin: 0;
   color: var(--ink);

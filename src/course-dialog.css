@@ -1,0 +1,292 @@
+.course-dialog {
+  box-sizing: border-box;
+  inset: 0;
+  width: min(480px, calc(100% - 28px));
+  max-width: none;
+  max-height: calc(100vh - 28px);
+  max-height: calc(100dvh - 28px);
+  margin: auto;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 20px 65px rgb(0 0 0 / 17%), 0 3px 10px rgb(0 0 0 / 6%);
+  transform-origin: center 54%;
+}
+
+.course-dialog[data-role='student'] {
+  width: min(412px, calc(100% - 28px));
+}
+
+.course-dialog[open] {
+  animation: course-dialog-in 380ms var(--ease) both;
+}
+
+.course-dialog[open]::backdrop {
+  background: rgb(22 22 22 / 42%);
+  backdrop-filter: blur(2px);
+  animation: course-dialog-backdrop-in 310ms var(--ease) both;
+}
+
+.course-dialog[open][data-closing] {
+  pointer-events: none;
+  animation: course-dialog-out 180ms ease both;
+}
+
+.course-dialog[open][data-closing]::backdrop {
+  animation: course-dialog-backdrop-out 180ms ease both;
+}
+
+.course-dialog-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 16px;
+  padding: clamp(16px, 4vw, 23px) clamp(16px, 4vw, 24px);
+  border-bottom: 1px solid var(--line);
+}
+
+.course-dialog-heading h2 {
+  margin: 0;
+  font-size: clamp(1.23rem, 4.5vw, 1.43rem);
+  font-weight: 770;
+  letter-spacing: -.045em;
+  line-height: 1.35;
+}
+
+.course-dialog-heading p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.55;
+  word-break: keep-all;
+}
+
+.course-dialog-close {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  transition: background-color 160ms var(--ease), color 160ms var(--ease);
+}
+
+.course-dialog-close svg { transform: rotate(45deg); }
+.course-dialog-close:hover { background: var(--accent-soft); color: var(--ink); }
+
+.course-dialog-form,
+.course-dialog-fields,
+.course-dialog-field {
+  display: grid;
+  min-width: 0;
+}
+
+.course-dialog-form {
+  gap: 16px;
+  padding: clamp(16px, 4vw, 23px) clamp(16px, 4vw, 24px);
+}
+
+.course-dialog-fields { gap: 13px; }
+.course-dialog-field { gap: 5px; }
+
+.course-dialog-field > label,
+.course-dialog-weekdays legend {
+  font-size: 0.85rem;
+  font-weight: 680;
+  line-height: 1.45;
+}
+
+.course-dialog-field > input {
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 16px;
+  transition: border-color 160ms var(--ease), background-color 160ms var(--ease);
+}
+
+.course-dialog-field > input::placeholder { color: var(--muted); font-size: 0.84rem; }
+.course-dialog-field > input:focus { border-color: var(--accent); }
+.course-dialog-field > input[aria-invalid='true'] { border-color: var(--danger); }
+
+.course-dialog button:focus-visible,
+.course-dialog-field > input:focus-visible,
+.course-dialog-day input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.course-dialog-weekdays { margin: 0; padding: 0; border: 0; }
+.course-dialog-weekdays legend { padding: 0 0 5px; }
+
+.course-dialog-weekday-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.course-dialog-day { position: relative; min-width: 0; }
+
+.course-dialog-day input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.course-dialog-day span {
+  display: grid;
+  min-height: 40px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 670;
+  pointer-events: none;
+  transition: background-color 170ms var(--ease), color 170ms var(--ease), border-color 170ms var(--ease);
+}
+
+.course-dialog-day input:hover:not(:disabled):not(:checked) + span { background: var(--bg); color: var(--ink); }
+.course-dialog-day input:checked + span { border-color: var(--accent); background: var(--accent); color: var(--surface); }
+.course-dialog-day input:disabled { cursor: default; }
+
+.course-dialog-times {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.course-dialog-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.83rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  animation: course-dialog-field-in 175ms var(--ease) both;
+}
+
+.course-dialog-error svg { flex: none; margin-top: 2px; }
+
+.course-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.course-dialog-cancel,
+.course-dialog-submit {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 15px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 690;
+  white-space: nowrap;
+  transition: background-color 170ms var(--ease), color 170ms var(--ease), border-color 170ms var(--ease), transform 170ms var(--ease);
+}
+
+.course-dialog-cancel:hover { background: var(--bg); }
+
+.course-dialog-submit {
+  min-width: 88px;
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+
+.course-dialog-submit:hover:not(:disabled) { background: var(--accent-strong); }
+.course-dialog-submit:active:not(:disabled) { transform: scale(.97); }
+.course-dialog-submit[data-status='pending'] { opacity: .75; }
+.course-dialog-submit[data-status='success'] { border-color: var(--line); background: var(--accent-soft); color: var(--ink); }
+.course-dialog-submit[data-status='success'] svg { animation: course-dialog-check 240ms var(--ease) both; }
+
+.course-dialog-spinner {
+  width: 13px;
+  height: 13px;
+  flex: none;
+  border: 1.5px solid currentColor;
+  border-inline-end-color: transparent;
+  border-radius: 50%;
+  animation: course-dialog-spin 720ms linear infinite;
+}
+
+.course-dialog[open] .course-dialog-fields > *,
+.course-dialog[open] .course-dialog-actions {
+  animation: course-dialog-field-in 250ms var(--ease) var(--course-dialog-delay, 52ms) both;
+}
+
+.course-dialog-fields > :nth-child(2) { --course-dialog-delay: 82ms; }
+.course-dialog-fields > :nth-child(3) { --course-dialog-delay: 112ms; }
+.course-dialog-fields > :nth-child(4) { --course-dialog-delay: 142ms; }
+.course-dialog-fields > :nth-child(5) { --course-dialog-delay: 172ms; }
+.course-dialog-actions { --course-dialog-delay: 96ms; }
+.course-dialog[data-role='professor'] .course-dialog-actions { --course-dialog-delay: 202ms; }
+
+@keyframes course-dialog-in {
+  0% { opacity: 0; transform: translateY(24px) scale(.95); }
+  72% { opacity: 1; transform: translateY(-2px) scale(1.008); }
+  100% { opacity: 1; transform: none; }
+}
+
+@keyframes course-dialog-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(9px) scale(.982); }
+}
+
+@keyframes course-dialog-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes course-dialog-backdrop-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes course-dialog-field-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes course-dialog-check { from { opacity: 0; transform: scale(.6); } to { opacity: 1; transform: none; } }
+@keyframes course-dialog-spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 360px) {
+  .course-dialog-times { grid-template-columns: minmax(0, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .course-dialog[open],
+  .course-dialog[open][data-closing],
+  .course-dialog[open]::backdrop,
+  .course-dialog[open][data-closing]::backdrop,
+  .course-dialog[open] .course-dialog-fields > *,
+  .course-dialog[open] .course-dialog-actions,
+  .course-dialog-submit[data-status='success'] svg,
+  .course-dialog-spinner,
+  .course-dialog-error { animation: none; }
+
+  .course-dialog-close,
+  .course-dialog-field > input,
+  .course-dialog-day span,
+  .course-dialog-cancel,
+  .course-dialog-submit { transition: none; }
+
+  .course-dialog-submit:active:not(:disabled) { transform: none; }
+}

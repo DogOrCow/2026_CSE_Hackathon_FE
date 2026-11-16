@@ -89,7 +89,7 @@ export function InstructorLive({
                 <div className="instructor-question-main">
                   <div className="instructor-question-meta">
                     <time dateTime={question.time}>{question.time}</time>
-                    <span className="instructor-question-status" data-answered={question.answered}>
+                    <span className="instructor-question-status" key={String(question.answered)} data-answered={question.answered}>
                       {question.answered && <Icon name="check" size={13} />}
                       {question.answered ? '답변 완료' : '미답변'}
                     </span>

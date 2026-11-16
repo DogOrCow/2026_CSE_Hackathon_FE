@@ -1,4 +1,4 @@
-import type { Course, CourseSession } from './courses'
+import type { Course, CourseDraft, CourseSession } from './courses'
 import type { Question } from './state'
 
 export type ApiRole = 'STUDENT' | 'PROFESSOR'
@@ -10,6 +10,7 @@ export type ApiCourse = {
   name: string
   code?: string | null
   professor_name: string | null
+  semester?: string
   schedule_text: string
   is_live: boolean
   next_class_at: string | null
@@ -164,6 +165,25 @@ export function enrollCourse(code: string, token: string, signal?: AbortSignal) 
   })
 }
 
+export function createProfessorCourse(draft: CourseDraft, token: string, signal?: AbortSignal) {
+  const semester = draft.semester.trim().replace(/^(\d{4})년\s*([12])학기$/, '$1-$2')
+  return apiRequest<ApiCourse>('/courses', {
+    method: 'POST',
+    token,
+    signal,
+    body: {
+      name: draft.name.trim(),
+      code: draft.code.trim().toUpperCase(),
+      semester,
+      schedules: draft.days.map((day) => ({
+        day_of_week: day,
+        start_time: draft.startsAt,
+        end_time: draft.endsAt,
+      })),
+    },
+  })
+}
+
 export function getLiveCourse(courseId: ApiId, token: string, signal?: AbortSignal) {
   return apiRequest<ApiLive>(`${coursePath(courseId)}/live`, { token, signal })
 }
@@ -225,6 +245,7 @@ export function mapApiCourse(course: ApiCourse, sessions: CourseSession[] = []):
     code: course.code ?? '',
     name: course.name,
     instructor: course.professor_name ? `${course.professor_name} 교수` : '담당 교수 미정',
+    semester: course.semester,
     schedule: course.schedule_text,
     nextClass: next ? `다음 수업 ${day.format(next)} ${clock.format(next)}` : '',
     sessions,
